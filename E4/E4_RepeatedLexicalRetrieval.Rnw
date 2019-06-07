@@ -1,0 +1,1133 @@
+\documentclass[letterpaper]{article}
+\usepackage[a4paper, total={7in, 8in}]{geometry}
+
+\usepackage{xcolor}
+\usepackage{Sweavel}
+\usepackage{graphicx}
+\def\Sweavesize{\normalsize}
+% Uncomment some of the following to use some alternatives:
+\def\Rcolor{\color{black}}
+\def\Routcolor{\color{blue}}
+\def\Rcommentcolor{\color{blue}}
+\definecolor{babyblueeyes}{rgb}{0.74, 0.83, 0.95}
+
+% To change background color or R code and/or output, use e.g.:
+\def\Rbackground{\color{babyblueeyes}}
+\def\Routbackground{\color[gray]{.8}}
+
+% To use rgb specifications use \color[rgb]{ , , }
+% To use gray scale use e.g. \color[gray]{0.5}
+% If you change any of these after the first chunk is produced, the
+% changes will have effect only for the next chunk.
+
+\title{Repeated Lexical Retrieval: Experiment 4}
+\author{Abhilasha Kumar}
+
+\begin{document}
+\SweaveOpts{concordance=FALSE}
+
+ \maketitle
+
+\section{Reading the Data File}
+
+We first read the file into an object called TOTFeedback. We can also display some part of the data by calling the head() function.
+
+<<>>=
+TOTFeedback = read.csv("TOTwoFeedback_FINAL.csv",
+                         header = TRUE, sep = ",")
+head(TOTFeedback[,c(1,6,7,11)])
+@
+
+
+\section {Conditional Target Accuracy}
+
+In this section, we calculate the number of trials in which participants correctly or incorrectly recalled the item, and split that by whether they correctly recalled the target from the definition. Then, we calculate the proportion of trials from the raw number of trials.
+
+<<>>=
+library(dplyr)
+
+cued_acc = group_by(TOTFeedback) %>%
+  summarise_at(vars(CuedRecallAcc, TargetAccuracy), mean)
+
+average_acc = group_by(TOTFeedback, Subject) %>%
+  summarise_at(vars(CuedRecallAcc, TargetAccuracy), mean)
+
+cued_acc = group_by(TOTFeedback, Subject, 
+                    PrimeCondition, CuedRecallAcc) %>%
+  summarise(recalltrials = n())
+
+conditional_acc = group_by(TOTFeedback, Subject, PrimeCondition,
+                           CuedRecallAcc, TargetAccuracy) %>%
+  summarise(trials = n())
+
+merge_acc = merge(conditional_acc, cued_acc, 
+                  by = c("Subject", "PrimeCondition", "CuedRecallAcc"))
+merge_acc$prop = merge_acc$trials/merge_acc$recalltrials
+@
+
+\section {ANOVA}
+
+In this section, we perform a repeated measures ANOVA on our data, to see if we are indeed seeing a difference in the proportion of unsuccessful trials for failed and successful cued recall. 
+
+<<>>=
+
+merge_acc$Subject = 
+  as.factor(as.character(merge_acc$Subject))
+merge_acc$CuedRecallAcc = 
+  as.factor(as.character(merge_acc$CuedRecallAcc))
+merge_acc$TargetAccuracy = 
+  as.factor(as.character(merge_acc$TargetAccuracy))
+
+merge_acc = merge_acc[order(merge_acc$Subject, merge_acc$CuedRecallAcc),]
+
+library(lme4)
+cond_aov = lmer(data = merge_acc, 
+        prop ~ PrimeCondition*CuedRecallAcc*TargetAccuracy +
+          (1|Subject))
+summary(cond_aov)
+car::Anova(cond_aov)
+
+@
+
+The ANOVA output tells us that the interaction term is not signiificant. We will next see this in a figure, to better understand our data.
+
+\section {Conditional Figure}
+
+<<fig=TRUE>>=
+cond_figure = Rmisc::summarySE(merge_acc, 
+                        measurevar = "prop",
+                        groupvars = c("PrimeCondition", "CuedRecallAcc", 
+                                      "TargetAccuracy"))
+
+library(ggplot2)
+library(ggthemes)
+condfigure_plot = cond_figure %>% mutate(Recall = factor(CuedRecallAcc, 
+                      levels = unique(CuedRecallAcc),
+                    labels = c("Failed Recall", 
+                               "Successful Recall")),
+                    `Target Retrieval` = factor(TargetAccuracy,
+                          levels = unique(TargetAccuracy),
+                       labels = c("Failed Target Retrieval", 
+                            "Successful Target Retrieval")))%>%
+ggplot(aes(x = Recall, y = prop, 
+           fill = `Target Retrieval`, group = `Target Retrieval`))+
+ geom_bar(stat = "identity", position = "dodge", width = 0.7)+
+  geom_errorbar(aes(ymin=prop - ci, ymax=prop + ci), 
+             width=.2, color = "gray26", 
+             position = position_dodge(0.7))+
+  facet_wrap(~PrimeCondition)+
+ theme_few()+
+  scale_fill_wsj()+
+    xlab("Cued Recall Accuracy") + ylab("Mean Proportion of Trials") + 
+  ggtitle("Target Retrieval Accuracy 
+          as a function of Cued Recall Accuracy")  +
+   theme(axis.text = element_text(face = "bold", size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1)),
+          legend.title = element_text(face = "bold", size = rel(1)),
+          plot.title = element_text(face = "bold", 
+                  size = rel(1.2), hjust = .5),
+         strip.text.x = element_text(face = "bold", size = rel(1.4)))
+condfigure_plot
+@
+
+\section*{Figure Overall Target Accuracy }
+
+<<fig=TRUE>>=
+
+prime_targetacc = group_by(TOTFeedback, Subject, PrimeCondition) %>%
+  summarise_at(vars(TargetAccuracy), mean)
+
+target_rmisc_overall = Rmisc::summarySE(prime_targetacc, 
+                      measurevar = "TargetAccuracy",
+                      groupvars = c("PrimeCondition"))
+
+library(ggplot2)
+library(ggthemes)
+target_rmisc_overall %>% 
+ggplot(aes(x = PrimeCondition , y = TargetAccuracy))+
+ geom_bar(stat = "identity", position = "dodge", width = 0.5)+
+  geom_errorbar(aes(ymin = TargetAccuracy - se, ymax = TargetAccuracy + se),
+                width=.05, position=position_dodge(.5)) +
+  theme_few()+
+  scale_fill_manual(values= c("slategray4", "slategray1"))+
+  xlab("Item Condition") + ylab("Mean Target Accuracy") + 
+  ggtitle("Target Retrieval Accuracy ") +
+    theme(axis.text = element_text(face = "bold", size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1.2)),
+          legend.title = element_text(face = "bold", size = rel(1.2)),
+          plot.title = element_text(face = "bold", size = rel(1.4), hjust = .5))
+@
+
+\subsection *{ANOVA}
+
+<<>>=
+prime_targetacc$Subject = as.factor(prime_targetacc$Subject)
+targetacc_aov = aov(data = prime_targetacc, 
+                    TargetAccuracy ~ PrimeCondition + 
+                      Error(Subject/PrimeCondition))
+summary(targetacc_aov)
+
+## ITEM
+
+prime_targetacc_item = group_by(TOTFeedback, Target, PrimeCondition) %>%
+  summarise_at(vars(TargetAccuracy), mean)
+
+prime_targetacc_item$Target = as.factor(prime_targetacc_item$Target)
+targetacc_aov_item = aov(data = prime_targetacc_item, 
+                    TargetAccuracy ~ PrimeCondition + 
+                      Error(Target/PrimeCondition))
+summary(targetacc_aov_item)
+
+@
+
+\subsection{LME}
+
+<<>>=
+contrasts(TOTFeedback$PrimeCondition)= contr.treatment(2, base = 2)
+library(lme4)
+prime_lmer2 = glmer(data = TOTFeedback,
+                   TargetAccuracy ~ PrimeCondition +
+                     (1|Subject) + (1|Target),
+                          family = "binomial",
+                          control=glmerControl(optimizer="bobyqa",
+            optCtrl=list(maxfun=100000)))
+summary(prime_lmer2)
+
+# > confint(prime_lmer2)
+# Computing profile confidence intervals ...
+#                      2.5 %      97.5 %
+# .sig01           1.2741502  1.87578523
+# .sig02           0.5706900  0.97947062
+# (Intercept)     -1.6315196 -0.72357416
+# PrimeCondition1 -0.3266536  0.06366817
+@
+
+
+\section*{Figure Target Accuracy }
+
+<<fig=TRUE>>=
+target_retrievalacc = group_by(TOTFeedback, Subject, PrimeCondition,
+                               CuedRecallAcc) %>%
+  summarise_at(vars(TargetAccuracy), mean)
+target_rmisc = Rmisc::summarySE(target_retrievalacc, 
+                      measurevar = "TargetAccuracy",
+                      groupvars = c("PrimeCondition", "CuedRecallAcc"))
+
+library(ggplot2)
+library(ggthemes)
+target_rmisc %>% mutate(`Item Retrieval` = factor(CuedRecallAcc, 
+                                        levels = unique(CuedRecallAcc),
+                    labels = c("Not Retrieved", "Retrieved")))%>%
+ggplot(aes(x = PrimeCondition , y = TargetAccuracy,
+      group = `Item Retrieval`, fill = `Item Retrieval`))+
+ geom_bar(stat = "identity", position = "dodge", width = 0.5)+
+  geom_errorbar(aes(ymin = TargetAccuracy - se, ymax = TargetAccuracy + se),
+                width=.05, position=position_dodge(.5)) +
+  theme_few()+
+  scale_fill_manual(values= c("slategray4", "slategray1"))+
+  xlab("Item Condition") + ylab("Mean Target Accuracy") + 
+  ggtitle("Target Retrieval Accuracy ") +
+    theme(axis.text = element_text(face = "bold", size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1.2)),
+          legend.title = element_text(face = "bold", size = rel(1.2)),
+          plot.title = element_text(face = "bold", size = rel(1.4), hjust = .5))
+@
+
+\subsection {Masters Retrieval Figure}
+
+<<fig=TRUE>>=
+TOTFeedback_fig = TOTFeedback
+TOTFeedback_fig$primefac = ordered(as.factor(as.character(TOTFeedback_fig$PrimeCondition)), 
+                      levels = c("Semantic", "Unrelated"))
+
+TOTFeedback_fig$TargetAccuracy = as.numeric(as.character(TOTFeedback_fig$TargetAccuracy))
+
+TOTFeedback_fig$CuedRecallAcc_Fac = ordered(as.factor(as.character(TOTFeedback_fig$CuedRecallAcc)), levels = c("1", "0"))
+
+
+targetacc2  = group_by(TOTFeedback_fig, Subject, primefac,
+                       CuedRecallAcc_Fac) %>%
+  summarise_at(vars(TargetAccuracy), mean)
+
+ret_figure = Rmisc::summarySE(targetacc2, 
+                    measurevar = "TargetAccuracy",
+                groupvars = c("primefac", "CuedRecallAcc_Fac"))
+
+library(ggplot2)
+library(ggthemes)
+ret_figure  %>% mutate(PrimeType = factor(primefac, 
+                                        levels = unique(primefac),
+                    labels = c("Semantic", 
+                                "Unrelated")),
+                    `Prime Retrieval` = factor(CuedRecallAcc_Fac, 
+                                levels = unique(CuedRecallAcc_Fac),
+                    labels = c("Retrieved", "Not Retrieved")))%>%
+   ggplot(aes(x = `Prime Retrieval`, y = TargetAccuracy, 
+                          group =PrimeType , 
+                          fill = PrimeType)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.5,
+           color ="gray28")+
+   geom_errorbar(aes(ymin = TargetAccuracy - se, 
+                     ymax = TargetAccuracy + se),
+                width=.08, position=position_dodge(.5)) +
+  theme_few()+
+#  scale_fill_canva()+
+ scale_fill_manual(values = c(  "red",
+                               "lightgreen"))+       
+  xlab("Prime Retrieval") + ylab("Mean Target Accuracy") + 
+ggtitle("TOT Without Feedback") +
+  theme(axis.text = element_text(size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1)),
+          legend.title = element_text(face = "bold", size = rel(1)),
+         plot.title = element_text(hjust = .5, size = rel(1)),
+         axis.text.x = element_text(face = "bold", size = rel(1.2)))
+
+@
+\subsection {ANOVA}
+
+<<>>=
+target_retrievalacc$Subject = as.factor(target_retrievalacc$Subject)
+target_retrievalacc$TargetAccuracy = as.numeric(target_retrievalacc$TargetAccuracy)
+target_retrievalacc$CuedRecallAcc = as.factor(target_retrievalacc$CuedRecallAcc)
+
+
+targetacc_aov = aov(data = target_retrievalacc, 
+                    TargetAccuracy ~ PrimeCondition*CuedRecallAcc + 
+                      Error(Subject/(PrimeCondition*CuedRecallAcc)))
+summary(targetacc_aov)
+@
+
+
+
+
+\section {HLM Model}
+
+<<>>=
+library(lme4)
+
+
+# participant_acc = group_by(TOTFeedback, Subject) %>%
+#   summarise_at(vars(TargetAccuracy, CuedRecallAcc), mean)
+# 
+# participant_acc$MeanAcc = (participant_acc$TargetAccuracy + 
+#                           participant_acc$CuedRecallAcc)/2
+# 
+# colnames(participant_acc) = c("Subject", "TargetAcc", "PrimeAcc", "MeanAcc")
+# 
+# TOTFeedback2 = merge(TOTFeedback, participant_acc[,c(1,3,4)], 
+#                        by = c("Subject"))
+
+
+item_acc = group_by(TOTFeedback, Target, PrimeCondition) %>%
+  summarise_at(vars(CuedRecallAcc), mean)
+
+colnames(item_acc) = c("Target","PrimeCondition","PrimeAcc")
+
+TOTFeedback2 = merge(TOTFeedback, item_acc, 
+                       by = c("Target", "PrimeCondition"))
+
+TOTFeedback_hlm = glmer(data = TOTFeedback2, 
+                               TargetAccuracy ~ PrimeCondition*CuedRecallAcc +
+                          PrimeAcc+
+                        (1|Subject) + (1|Target), family = "binomial")
+summary(TOTFeedback_hlm)
+car::Anova(TOTFeedback_hlm)
+options(contrasts = c("contr.sum","contr.poly"))
+anova(TOTFeedback_hlm)
+
+# > confint(TOTFeedback_hlm)
+# Computing profile confidence intervals ...
+#                                    2.5 %      97.5 %
+# .sig01                         1.2460017  1.84044905
+# .sig02                         0.5712899  0.98256373
+# (Intercept)                   -1.9325256 -0.90338633
+# PrimeCondition1               -0.7648296 -0.16126250
+# CuedRecallAcc                 -0.6232858  0.03907028
+# PrimeAcc                       0.2698517  1.24940016
+# PrimeCondition1:CuedRecallAcc  0.2273156  1.10316889
+@
+
+
+\section {z-scoring RTs}
+\subsection*{RT prime and Target}
+
+<<>>=
+
+hist(TOTFeedback$PrimeDef.RT)
+hist(TOTFeedback$TargetDefinition.RT)
+
+TOTFeedback_firsttrim_primedef = subset(TOTFeedback, 
+                                 TOTFeedback$PrimeDef.RT > 250 &
+                                TOTFeedback$PrimeDef.RT < 15000)
+
+TOTFeedback_firsttrim_targetdef = subset(TOTFeedback, 
+                                 TOTFeedback$TargetDefinition.RT > 250 &
+                                TOTFeedback$TargetDefinition.RT < 15000)
+
+
+
+@ 
+
+\subsection*{Prime Def}
+
+<<>>=
+## FOR PRIME
+## aggregate per subject all IVs and DVs
+meanRT = group_by(TOTFeedback_firsttrim_primedef, Subject) %>%
+  summarise_at(vars(PrimeDef.RT), mean)
+colnames(meanRT) = c("Subject", 
+                     "MeanRTPrime")
+
+sdRT = group_by(TOTFeedback_firsttrim_primedef, Subject) %>%
+  summarise_at(vars(PrimeDef.RT), sd)
+colnames(sdRT) = c("Subject",
+                     "sdRTPrime")
+
+RT_agg = merge(meanRT, sdRT, by = "Subject")
+
+## merge aggregate info with long data
+TOTFeedback_z_prime = merge(TOTFeedback_firsttrim_primedef, 
+                             RT_agg, by = "Subject", all.x = T)
+
+## person and grand-mean centered scores using original and aggregate
+library(dplyr)
+TOTFeedback_z_prime = TOTFeedback_z_prime %>% mutate(zPrimeRT = 
+                                             (PrimeDef.RT - 
+                                                MeanRTPrime)/sdRTPrime)
+                 
+## checking: subject level means should be zero
+
+sub_pic = group_by(TOTFeedback_z_prime, Subject) %>%
+  summarise_at(vars(zPrimeRT), mean)
+@
+
+\subsection*{TargetDefRT}
+<<>>=
+## FOR TARGET
+## aggregate per subject all IVs and DVs
+meanRT = group_by(TOTFeedback_firsttrim_targetdef, Subject) %>%
+  summarise_at(vars(TargetDefinition.RT), mean)
+colnames(meanRT) = c("Subject", "MeanTargetRT")
+
+sdRT = group_by(TOTFeedback_firsttrim_targetdef, Subject) %>%
+  summarise_at(vars(TargetDefinition.RT), sd)
+colnames(sdRT) = c("Subject", "sdTargetRT")
+
+RT_agg = merge(meanRT, sdRT, by = "Subject")
+
+## merge aggregate info with long data
+TOTFeedback_z_targetdef = merge(TOTFeedback_firsttrim_targetdef,
+                             RT_agg, by = "Subject", all.x = T)
+
+## person and grand-mean centered scores using original and aggregate
+library(dplyr)
+TOTFeedback_z_targetdef = TOTFeedback_z_targetdef %>% mutate( zTargetRT = 
+                                             (TargetDefinition.RT - 
+                                                MeanTargetRT)/sdTargetRT)
+                 
+## checking: subject level means should be zero
+
+sub_pic = group_by(TOTFeedback_z_targetdef, Subject) %>%
+  summarise_at(vars(zTargetRT), mean)
+
+@
+
+\section {Trimming z-RTs}
+
+<<>>=
+
+TOTFeedback_z_trimmed_prime = subset(TOTFeedback_z_prime, 
+                         TOTFeedback_z_prime$zPrimeRT < 3 & 
+                            TOTFeedback_z_prime$zPrimeRT > -3)
+
+TOTFeedback_z_trimmed_targetdef = subset(TOTFeedback_z_targetdef,                             TOTFeedback_z_targetdef$zTargetRT < 3 &                                TOTFeedback_z_targetdef$zTargetRT > -3)
+@
+
+\section {Repeating z-scoring}
+
+\subsection{For prime}
+
+<<>>=
+## aggregate per subject all IVs and DVs
+meanRT_prime = group_by(TOTFeedback_z_trimmed_prime, Subject) %>%
+  summarise_at(vars(PrimeDef.RT), mean)
+colnames(meanRT_prime) = c("Subject", 
+                     "MeanRTPrime_trim")
+
+sdRT_prime = group_by(TOTFeedback_z_trimmed_prime, Subject) %>%
+  summarise_at(vars(PrimeDef.RT), sd)
+colnames(sdRT_prime) = c("Subject",
+                     "sdRTPrime_trim")
+
+RT_agg_prime = merge(meanRT_prime, sdRT_prime, by = "Subject")
+
+## merge aggregate info with long data
+TOTFeedback_final_z_prime = merge(TOTFeedback_z_trimmed_prime, 
+                             RT_agg_prime, by = "Subject", all.x = T)
+
+## person and grand-mean centered scores using original and aggregate
+library(dplyr)
+TOTFeedback_final_z_prime = TOTFeedback_final_z_prime %>% 
+                                  mutate( zPrimeRT_trim = 
+                                             (PrimeDef.RT - 
+                                      MeanRTPrime_trim)/sdRTPrime_trim)
+                 
+## checking: subject level means should be zero
+
+sub_pic = group_by(TOTFeedback_final_z_prime, Subject) %>%
+  summarise_at(vars(zPrimeRT_trim), mean)
+
+@
+
+
+\subsection{For TargetDefRT}
+
+<<>>=
+## aggregate per subject all IVs and DVs
+meanRT_targetdef = group_by(TOTFeedback_z_trimmed_targetdef, Subject) %>%
+  summarise_at(vars(TargetDefinition.RT), mean)
+colnames(meanRT_targetdef) = c("Subject", "MeanTargetRT_trim")
+
+sdRT_targetdef = group_by(TOTFeedback_z_trimmed_targetdef, Subject) %>%
+  summarise_at(vars(TargetDefinition.RT), sd)
+colnames(sdRT_targetdef) = c("Subject", "sdTargetRT_trim")
+
+RT_agg_targetdef = merge(meanRT_targetdef, sdRT_targetdef, by = "Subject")
+
+## merge aggregate info with long data
+TOTFeedback_final_z_targetdef = merge(TOTFeedback_z_trimmed_targetdef, 
+                             RT_agg_targetdef, by = "Subject", all.x = T)
+
+## person and grand-mean centered scores using original and aggregate
+library(dplyr)
+TOTFeedback_final_z_targetdef = TOTFeedback_final_z_targetdef %>% 
+                                  mutate(zTargetRT_trim = 
+                                             (TargetDefinition.RT - 
+                                                MeanTargetRT_trim)/sdTargetRT_trim)
+                 
+## checking: subject level means should be zero
+
+sub_pic = group_by(TOTFeedback_final_z_targetdef, Subject) %>%
+  summarise_at(vars(zTargetRT_trim), mean)
+
+@
+
+\subsection {Combining z-RT Prime and Target }
+
+<<>>=
+## now we have separately z-scored RTprime and RTtarget. Need to combine.
+## taking only necessary columns
+TOTFeedback_final_z_prime2 = 
+  TOTFeedback_final_z_prime[,c(1,4,25)]
+
+## for accuracy
+TOTFeedback_final_z = merge(TOTFeedback_final_z_targetdef, 
+                             TOTFeedback_final_z_prime2, 
+                             by  = c("Subject", "Trial"))
+@
+
+\section {Linear Models}
+
+<<>>=
+# Mean RT to retrieve Target as a function of Prime Condition
+
+# Effect of RT prime on Accuracy
+TOTFeedback_final_z = TOTFeedback_final_z
+contrasts(TOTFeedback_final_z$PrimeCondition) = contr.treatment(2, base = 2)
+library(lme4)
+RTprime_acc_model = glmer(data = TOTFeedback_final_z, 
+                    TargetAccuracy ~ PrimeCondition*zPrimeRT_trim + 
+                            (1|Subject) + (1|Target), family = binomial )
+summary(RTprime_acc_model)
+car::Anova(RTprime_acc_model)
+options(contrasts = c("contr.sum","contr.poly"))
+anova(RTprime_acc_model)
+
+## TARGET DEF MODEL
+
+RTprime_RTtargetdef_model = lmer(data = TOTFeedback_final_z, 
+                    zTargetRT_trim ~ PrimeCondition*zPrimeRT_trim + 
+                            (1|Subject) + (1|Target))
+summary(RTprime_RTtargetdef_model)
+car::Anova(RTprime_RTtargetdef_model)
+
+@
+
+
+\subsection {RAW RT Model}
+
+<<fig=TRUE>>=
+
+TOTFeedback_final_z$PrimeType = ordered(as.factor(as.character(TOTFeedback_final_z$PrimeCondition)), levels = c("Semantic", "Unrelated"))
+
+TOTFeedback_final_z %>%
+  ggplot(aes(x = PrimeDef.RT, y = TargetDefinition.RT, 
+             group = PrimeType, color = PrimeType)) +
+  geom_smooth(method = "lm", size = 1)+
+    xlab("z-RT to Retrieve Prime") + ylab ("z-RT to Retrieve Target")+ 
+theme_few() +
+scale_color_manual(values = c( "red","lightgreen"))+  
+  ggtitle("Experiment 6") +
+  theme(axis.text = element_text(size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1)),
+          legend.title = element_text(face = "bold", size = rel(1)),
+         plot.title = element_text(hjust = .5, size = rel(1)),
+         axis.text.x = element_text(face = "bold", size = rel(1.2)))
+
+@
+
+\subsection {Acc Model}
+
+<<>>=
+## sd for zPrimeRecogRT_trim
+sd(TOTFeedback_final_z$zPrimeRT_trim)
+# this is the model
+
+# RTprime_acc_model = glmer(data = TOTFeedback_final_z, 
+#                     TargetAccuracy ~ PrimeCondition*zPrimeRT_trim + 
+#                             (1|Subject) + (1|Target), family = binomial )
+# summary(RTprime_acc_model)
+
+primert_model = lmer(data = TOTFeedback_final_z,
+                     zPrimeRT_trim ~ 1 + (1 | Subject) +
+                       (1|Target))
+summary(primert_model)
+
+VarCorr(primert_model)
+SD_prime <- as.data.frame(VarCorr(primert_model))[3, 5]
+
+## now we need to find increments for each prime condition
+
+primert_model_2 <- lmer(data = TOTFeedback_final_z, 
+                        zPrimeRT_trim ~ 1 + PrimeCondition +
+                      (1|Subject) + (1|Target))
+
+prime_Inc_1_U <- 0*fixef(primert_model_2)[1]
+prime_Inc_1_R <- 1*fixef(primert_model_2)[2]
+
+
+predict_data_U <- with(TOTFeedback_final_z,
+                  data.frame(school=1,
+ zPrimeRT_trim=seq(from=-prime_Inc_1_U-SD_prime,
+         to=-prime_Inc_1_U+SD_prime,
+         by=SD_prime), 
+ PrimeCondition = 0))
+
+predict_data_R <- with(TOTFeedback_final_z,
+                  data.frame(school=1,
+ zPrimeRT_trim=seq(from=-prime_Inc_1_R-SD_prime,
+         to=-prime_Inc_1_R+SD_prime,
+         by=SD_prime), 
+ PrimeCondition = 1))
+
+predict_data = rbind(predict_data_U, 
+                     predict_data_R)
+
+predict_data$PrimeCondition = ifelse(predict_data$PrimeCondition == 0, 
+                                     "Unrelated","Semantic")
+
+predict_data = predict_data %>%
+  mutate(predicted_values = predict(RTprime_acc_model, 
+          newdata = predict_data, re.form = NA))
+
+predict_data$prob = exp(predict_data$predicted_values)/(1+exp(predict_data$predicted_values))
+
+predict_data$PrimeCondition = ordered(as.factor(as.character(predict_data$PrimeCondition)), levels = c("Semantic", "Unrelated"))
+predict_data %>%
+  mutate(PrimeType = factor(PrimeCondition, levels = unique(PrimeCondition),
+                    labels = c("Unrelated", "Semantic")))%>%
+  ggplot(aes(x = zPrimeRT_trim, y = prob,
+             color = PrimeType)) +
+    geom_line(size = 1) + 
+    xlab("z-RT to Demask Prime") + ylab ("Mean Target Accuracy")+ 
+  ggtitle("Experiment 4")+
+theme_few() +
+  scale_color_manual(values = c("lightgreen","red"))+  
+    theme(axis.text = element_text(face = "bold", size = rel(1.2)),
+          axis.title = element_text(face = "bold", size = rel(1.2)),
+          legend.title = element_text(face = "bold", size = rel(1.2)),
+    plot.title = element_text(face = "bold", size = rel(1.2), hjust = .5))
+@
+
+\subsection {RAW ACC Model}
+
+<<fig=TRUE>>=
+
+TOTFeedback_final_z$primefac = ordered(as.factor(as.character(TOTFeedback_final_z$PrimeCondition)), levels = c("Semantic", "Unrelated"))
+
+TOTFeedback_final_z %>%
+  mutate(PrimeType = factor(primefac, levels = unique(primefac),
+                    labels = c("Semantic", 
+                                "Unrelated")))%>%
+  ggplot(aes(x = zPrimeRT_trim, y = TargetAccuracy, 
+             group = PrimeType, color = PrimeType)) +
+  geom_smooth(method = "lm")+
+    xlab("z-RT to Retrieve Prime") + ylab ("Mean Target Accuracy")+ 
+  ggtitle("TOT without feedback")+
+theme_few() +
+scale_color_manual(values = c( "red","lightgreen"))+  
+  theme(axis.text = element_text(size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1)),
+          legend.title = element_text(face = "bold", size = rel(1)),
+         plot.title = element_text(hjust = .5, size = rel(1)),
+         axis.text.x = element_text(face = "bold", size = rel(1.2)))
+
+@
+
+\section {Response Analysis}
+
+\subsection{All Responses}
+
+<<fig=TRUE>>=
+ TOTFeedback = read.csv("TOTwoFeedback_FINAL.csv",
+                          header = TRUE, sep = ",")
+
+TOTFeedback$AllResponse = ifelse(TOTFeedback$PrimeRespType %in% 
+                                 c("Associate", "Synonym"), "Associate/Synonym",
+                               ifelse(TOTFeedback$PrimeRespType == "NoResponse",
+                                      "No Response", 
+                            ifelse(TOTFeedback$PrimeRespType == "Correct","Correct", 
+                                   "Incorrect")))
+
+TOTFeedback_subject = group_by(TOTFeedback, Subject, PrimeCondition, AllResponse) %>%
+  summarize_at(vars(TargetAccuracy), mean)
+
+ret_figure = Rmisc::summarySE(TOTFeedback_subject, 
+                    measurevar = "TargetAccuracy",
+                groupvars = c("PrimeCondition", "AllResponse"))
+
+library(ggplot2)
+library(ggthemes)
+library(dplyr)
+ret_figure  %>% 
+   ggplot(aes(x = AllResponse, y = TargetAccuracy, 
+                          group =PrimeCondition , 
+                          fill = PrimeCondition)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.5,
+           color ="gray28")+
+   geom_errorbar(aes(ymin = TargetAccuracy - se, 
+                     ymax = TargetAccuracy + se),
+                width=.08, position=position_dodge(.5)) +
+  theme_few()+
+#  scale_fill_canva()+
+ scale_fill_manual(values = c(  "red",
+                               "lightgreen"))+       
+  xlab("Prime Retrieval") + ylab("Mean Target Accuracy") + 
+ggtitle("Experiment 4") +
+  theme(axis.text = element_text(size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1)),
+          legend.title = element_text(face = "bold", size = rel(1)),
+         plot.title = element_text(hjust = .5, size = rel(1)),
+         axis.text.x = element_text(face = "bold", size = rel(1.2)))
+@
+
+\subsection {3-group Responses}
+
+<<fig=TRUE>>=
+# TOTFeedback = read.csv("TOTwoFeedback_FINAL.csv",
+#                          header = TRUE, sep = ",")
+
+TOTFeedback = TOTFeedback_final_z
+
+TOTFeedback$Response = ifelse(TOTFeedback$PrimeRespType %in% 
+                                 c("Associate", "Incorrect"), "Related Word",
+                               ifelse(TOTFeedback$PrimeRespType == "NoResponse",
+                                      "No Response", "Correct"))
+
+TOTFeedback$Response = ordered(as.factor(as.character(TOTFeedback$Response)), 
+                      levels = c("Correct", "Related Word", "No Response"))
+
+TOTFeedback_subject = group_by(TOTFeedback, Subject, PrimeCondition, Response) %>%
+  summarize_at(vars(TargetAccuracy), mean)
+
+ret_figure = Rmisc::summarySE(TOTFeedback_subject, 
+                    measurevar = "TargetAccuracy",
+                groupvars = c("PrimeCondition", "Response"))
+
+library(ggplot2)
+library(ggthemes)
+library(dplyr)
+ret_figure  %>% 
+   ggplot(aes(x = Response, y = TargetAccuracy, 
+                          group =PrimeCondition , 
+                          fill = PrimeCondition)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.5,
+           color ="gray28")+
+   geom_errorbar(aes(ymin = TargetAccuracy - se, 
+                     ymax = TargetAccuracy + se),
+                width=.08, position=position_dodge(.5)) +
+  theme_few()+
+#  scale_fill_canva()+
+ scale_fill_manual(values = c(  "red",
+                               "lightgreen"))+       
+  xlab("Prime Retrieval") + ylab("Mean Target Accuracy") + 
+ggtitle("TOT Without Feedback") +
+  theme(axis.text = element_text(size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1)),
+          legend.title = element_text(face = "bold", size = rel(1)),
+         plot.title = element_text(hjust = .5, size = rel(1)),
+         axis.text.x = element_text(face = "bold", size = rel(1.2)))
+@
+
+\subsection {POS-split Responses}
+
+<<fig=TRUE>>=
+
+
+ret_figure = Rmisc::summarySE(TOTFeedback, 
+                    measurevar = "TargetAccuracy",
+                groupvars = c("Prime_POS", "PrimeCondition", "PrimeRespType"))
+
+library(ggplot2)
+library(ggthemes)
+library(dplyr)
+ret_figure  %>% 
+   ggplot(aes(x = PrimeRespType, y = TargetAccuracy, 
+                          group =PrimeCondition , 
+                          fill = PrimeCondition)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.5,
+           color ="gray28")+
+   geom_errorbar(aes(ymin = TargetAccuracy - se, 
+                     ymax = TargetAccuracy + se),
+                width=.08, position=position_dodge(.5)) +
+  theme_few()+
+facet_wrap(~Prime_POS)+
+  scale_fill_manual(values = c(  "red",
+                               "lightgreen"))+       
+  xlab("Prime Retrieval") + ylab("Mean Target Accuracy") + 
+ggtitle("E4") +
+  theme(axis.text = element_text(size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1)),
+          legend.title = element_text(face = "bold", size = rel(1)),
+         plot.title = element_text(hjust = .5, size = rel(1)),
+         axis.text.x = element_text(face = "bold", size = rel(1.2)))
+@
+
+
+\subsection{LME}
+
+<<>>=
+TOTFeedback$Response = as.factor(TOTFeedback$Response)
+contrasts(TOTFeedback$Response) = contr.treatment(3, base = 1)
+contrasts(TOTFeedback$PrimeCondition) = contr.treatment(2, base = 2)
+
+TOTFeedback_hlm2 = glmer(data = TOTFeedback, 
+                               TargetAccuracy ~ PrimeCondition*Response +
+                        (1|Subject) + (1|Target), family = "binomial")
+summary(TOTFeedback_hlm2)
+
+#sjPlot::plot_model(TOTFeedback_hlm2, type = "int")
+
+car::Anova(TOTFeedback_hlm2)
+@
+
+\subsection {Contrasts}
+
+<<>>=
+
+## first reproduce means
+
+means_contrasts = matrix(c(1, 0, 0, 0, 0, 0, # UC 
+                 1, 1, 0, 0, 0, 0, # SC
+                 1, 0, 1, 0, 0, 0, # UO
+                 1, 1, 1, 0, 1, 0, # SO
+                 1, 0, 0, 1, 0, 0, # UN
+                 1, 1, 0, 1, 0, 1) , nrow = 6, # SN
+ncol = 6, byrow = TRUE)
+# Give the weight matrix some meaningful row names.
+rownames(means_contrasts) <- c("UC", "SC", "UO", "SO", "UN", "SN")
+model_means = means_contrasts %*% fixef(TOTFeedback_hlm2)
+colnames(model_means) = "Logits"
+knitr::kable(model_means)
+library(multcomp)
+glht_means <- glht(TOTFeedback_hlm2, linfct = means_contrasts, 
+                   alternative = "two.sided", rhs = 0)
+summary(glht_means, adjusted(type = "holm"))
+
+## create contrast matrix that needs to be multiplied
+contrast_matrix <- matrix(c(1, -1, 0, 0, 0, 0,
+                    0, 0, 1, -1, 0, 0,
+                    0, 0, 0, 0, 1, -1), 
+                nrow = 3, ncol = 6, byrow = TRUE)
+rownames(contrast_matrix) <- c("SC vs UC", 
+                       "SO vs UO",
+                       "SN vs UN")
+
+matrix_for_glht <-contrast_matrix %*% means_contrasts
+matrix_for_glht
+
+glht_model1 <- multcomp::glht(TOTFeedback_hlm2, 
+                           linfct = matrix_for_glht, 
+               alternative = "two.sided", rhs = 0)
+summary(glht_model1)
+@
+
+\subsection {Specific Comparisons}
+
+<<>>=
+
+responses_correct = TOTFeedback %>% filter(Response == "Correct")
+
+## get an estimate of semantic and unrelated per subject: this is between subjects here
+
+responses_correct_sub = group_by(responses_correct, Subject, PrimeCondition) %>%
+  summarise_at(vars(TargetAccuracy), mean)
+
+responses_correct_sub_semantic = responses_correct_sub %>% 
+  filter(PrimeCondition == "Semantic")
+responses_correct_sub_unrelated = responses_correct_sub %>% 
+  filter(PrimeCondition == "Unrelated")
+
+t.test(responses_correct_sub_semantic$TargetAccuracy, 
+       responses_correct_sub_unrelated$TargetAccuracy,
+       paired = TRUE)
+
+
+responses_other = TOTFeedback %>% filter(Response == "Related Word")
+
+## get an estimate of semantic and unrelated per subject: this is between subjects here
+
+responses_other_sub = group_by(responses_other, Subject, PrimeCondition) %>%
+  summarise_at(vars(TargetAccuracy), mean)
+
+responses_other_sub = responses_other_sub %>%
+  filter(!Subject %in% c(15, 23,24,29,32,34))
+
+responses_other_sub_semantic = responses_other_sub %>% 
+  filter(PrimeCondition == "Semantic")
+responses_other_sub_unrelated = responses_other_sub %>% 
+  filter(PrimeCondition == "Unrelated")
+
+t.test(responses_other_sub_semantic$TargetAccuracy, 
+       responses_other_sub_unrelated$TargetAccuracy,
+       paired = TRUE)
+
+responses_none = TOTFeedback %>% filter(Response == "No Response")
+
+## get an estimate of semantic and unrelated per subject: this is between subjects here
+
+responses_none_sub = group_by(responses_none, Subject, PrimeCondition) %>%
+  summarise_at(vars(TargetAccuracy), mean)
+
+responses_none_sub = responses_none_sub %>% filter( Subject!= 35)
+
+responses_none_sub_semantic = responses_none_sub %>% 
+  filter(PrimeCondition == "Semantic")
+responses_none_sub_unrelated = responses_none_sub %>% 
+  filter(PrimeCondition == "Unrelated")
+
+t.test(responses_none_sub_semantic$TargetAccuracy, 
+       responses_none_sub_unrelated$TargetAccuracy,
+       paired = TRUE)
+@
+
+\subsection {State by Response Type}
+
+<<>>=
+response_state = group_by(TOTFeedback, Subject, PrimeCondition, TargetRespType, TargetQuestion) %>%
+  summarise(trials = n())
+
+response_state_rmisc = Rmisc::summarySE(response_state, 
+                                        measurevar = "trials",
+                                        groupvars = c("PrimeCondition",
+                                          "TargetRespType", "TargetQuestion"))
+
+response_state_rmisc$State = ifelse(response_state_rmisc$TargetQuestion == 1,
+                         "Know", ifelse(response_state_rmisc$TargetQuestion == 2, 
+                     "Dont Know", ifelse(response_state_rmisc$TargetQuestion == 3, 
+                                         "Other Word", "TOT")))
+
+response_state_rmisc$State = ordered(as.factor(as.character(response_state_rmisc$State)), 
+                      levels = c("Know", "Dont Know", "Other Word", "TOT"))
+
+response_state_rmisc  %>% 
+   ggplot(aes(x = TargetRespType, y = trials, 
+                          group =State , 
+                          fill = State)) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.5,
+           color ="gray28")+
+   geom_errorbar(aes(ymin = trials - se, 
+                     ymax = trials + se),
+                width=.08, position=position_dodge(.5)) +
+  theme_few()+
+  facet_wrap(~PrimeCondition)+
+  xlab("Target Response Types") + ylab("Mean Number of Trials") + 
+ggtitle("E4: Retrieval Without Feedback") +
+  theme(axis.text = element_text(size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1)),
+          legend.title = element_text(face = "bold", size = rel(1)),
+         plot.title = element_text(hjust = .5, size = rel(1)),
+         axis.text.x = element_text(face = "bold", size = rel(1.2)))
+
+
+@
+
+\section {Percentage State Prime Analysis}
+
+<<>>=
+state = read.csv("E5_TOTwoFeedback_AGG.csv",header = TRUE, sep = ",")
+
+j_statepercent = state[,c(1,21:28)] # use for prime percents
+j_statepercent$Subject = as.factor(j_statepercent$Subject)
+
+library(tidyr)
+library(dplyr)
+statepercent <- j_statepercent %>%
+  gather(PrimeState, Percent, 
+         prop_r_know, prop_r_dontknow, prop_r_other, prop_r_TOT,
+         prop_u_know, prop_u_dontknow, prop_u_other, prop_u_TOT) %>%
+  separate(PrimeState, c('Prop', 'Prime', 'State'), sep = "_") %>%
+  arrange(Subject)
+#removing prop
+statepercent = statepercent[,-2]
+
+colnames(statepercent) = c( "Subject",
+                            "PrimeCondition", "State", "Percent")
+
+statepercent$Subject <- as.factor(statepercent$Subject)
+statepercent$PrimeCondition <- as.factor(statepercent$PrimeCondition)
+statepercent$State <- as.factor(statepercent$State)
+statepercent$Percent <- as.numeric(as.character(statepercent$Percent))
+
+## anova
+
+state_aov = aov(data = statepercent, Percent ~ PrimeCondition*State + 
+                  Error(Subject/(PrimeCondition*State)))
+summary(state_aov)
+@ 
+\subsubsection {plot}
+<<>>=
+## figure
+state_rmisc = Rmisc::summarySE(statepercent,
+                               measurevar = "Percent",
+                               groupvars = c("PrimeCondition","State"))
+
+x <- c("know","dontknow", "other", "TOT")
+
+state_rmisc = state_rmisc %>%
+  mutate(rstate =  factor(State, levels = x)) %>%
+  arrange(rstate)
+
+library(ggplot2)
+library(ggthemes)
+
+percentplot = state_rmisc %>% 
+  mutate(PrimeType = factor(PrimeCondition, levels = unique(PrimeCondition),
+                    labels = c( "Semantic", "Unrelated")),
+   R = factor(rstate, levels = unique(rstate),
+                                labels = c( "1: Know","2: Dont Know",
+                                            "3:Other", "4: TOT")))%>%
+  
+ggplot(aes(x = R, y = Percent, 
+           group = PrimeType, fill = PrimeType))+
+ geom_bar(stat = "identity", position = "dodge", width = 0.7, 
+          color= "black")+
+  geom_errorbar(aes(ymin=Percent - se, ymax=Percent + se), 
+             width=.2, color = "gray26", 
+             position = position_dodge(0.7))+
+ theme_few()+
+    xlab("") + ylab("Percentage of trials") + 
+ scale_fill_manual(values = c( "red","lightgreen"))+    
+  ggtitle("E5")  +
+   theme(axis.text = element_text(size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1)),
+          legend.title = element_text(face = "bold", size = rel(1)),
+         plot.title = element_text(hjust = .5),
+                  axis.text.x = element_text(size = rel(1)),
+         strip.text.x = element_text(face = "bold", size = rel(1.4)))
+percentplot
+@
+
+\subsubsection {know}
+
+<<>>=
+e1_know = statepercent %>% filter(State == "know")
+e1_know_aov = aov(data = e1_know, 
+                          Percent ~ PrimeCondition + 
+                        Error(Subject/PrimeCondition))
+summary(e1_know_aov)
+@
+\subsubsection {dont know}
+
+<<>>=
+e1_dontknow = statepercent %>% filter(State == "dontknow")
+e1_dontknow_aov = aov(data = e1_dontknow, 
+                          Percent ~ PrimeCondition + 
+                        Error(Subject/PrimeCondition))
+summary(e1_dontknow_aov)
+@
+
+\subsubsection {other}
+<<>>=
+
+e1_other = statepercent %>% filter(State == "other")
+e1_other_aov = aov(data = e1_other, 
+                          Percent ~ PrimeCondition + 
+                        Error(Subject/PrimeCondition))
+summary(e1_other_aov)
+@
+
+\subsubsection{ TOT}
+<<>>=
+
+e1_TOT = statepercent %>% filter(State == "TOT")
+e1_TOT_aov = aov(data = e1_TOT, 
+                          Percent ~ PrimeCondition + 
+                        Error(Subject/PrimeCondition))
+summary(e1_TOT_aov)
+@
+
+\subsection {Raw Retrieval States}
+
+<<>>=
+library(dplyr)
+SemanticCuedRecall_Count = group_by(TOTFeedback,
+                                    Subject, PrimeCondition,
+                                    TargetQuestion) %>%
+  summarise(Count = n())
+
+state_rmisc = Rmisc::summarySE(SemanticCuedRecall_Count,
+                               measurevar = "Count",
+                               groupvars = c("PrimeCondition",
+                                             "TargetQuestion"))
+
+x <- c("1","2", "3", "4")
+
+state_rmisc = state_rmisc %>%
+  mutate(rstate =  factor(TargetQuestion, levels = x)) %>%
+  arrange(rstate)
+
+library(ggplot2)
+library(ggthemes)
+
+percentplot = state_rmisc %>% 
+  mutate(PrimeType = factor(PrimeCondition, levels = unique(PrimeCondition),
+                    labels = c("Semantic", "Unrelated")),
+   R = factor(rstate, levels = unique(rstate),
+                                labels = c( "1: Know","2: Dont Know",
+                                            "3:Other", "4: TOT")))%>%
+ggplot(aes(x = R, y = Count, 
+           group = PrimeType, fill = PrimeType))+
+ geom_bar(stat = "identity", position = "dodge", width = 0.7, 
+          color= "black")+
+  geom_errorbar(aes(ymin=Count - se, ymax=Count + se), 
+             width=.2, color = "gray26", 
+             position = position_dodge(0.7))+
+ theme_few()+
+    xlab("") + ylab("Number of trials") + 
+ scale_fill_manual(values = c( "red",
+                               "lightgreen"))+    
+  ggtitle("E6")  +
+   theme(axis.text = element_text(size = rel(1)),
+          axis.title = element_text(face = "bold", size = rel(1)),
+          legend.title = element_text(face = "bold", size = rel(1)),
+         plot.title = element_text(hjust = .5),
+                  axis.text.x = element_text(size = rel(1)),
+         strip.text.x = element_text(face = "bold", size = rel(1.4)))
+percentplot
+@
+
+
+
+
+\end{document}
